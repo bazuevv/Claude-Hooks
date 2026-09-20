@@ -1,0 +1,5 @@
+# Machine-specific executable paths written by install.
+/install-state/
+# Local distribution profile contains a credential supplied by the user.
+/settings_API.json
+/MacOS_Install.app/Contents/Resources/payload/.claude/settings_API.json

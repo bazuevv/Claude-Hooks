@@ -1,0 +1,3169 @@
+/*
+ * Кастомные стили для webview расширения Claude Code (anthropic.claude-code).
+ *
+ * Загружается через <link> из webview/index.js, который инжектит JS-патч
+ * (см. PATCHES_DIR в .claude/hooks/patch-claude-webview.py).
+ *
+ * Канонический источник — этот файл; копия в
+ * ~/.vscode/extensions/anthropic.claude-code-*-linux-x64/webview/claude-custom.css
+ * синхронизируется хуком SessionStart на каждой сессии.
+ *
+ * Для применения изменений: правишь этот файл → новая сессия Claude Code
+ * скопирует его в webview/ → Developer: Reload Window в VSCode.
+ */
+
+/* Общий зелёный цвет меток даты и времени. */
+.claude-ts-line,
+.claude-ts-line em,
+.claude-ts-line *,
+.claude-user-message-time {
+  color: #51e00e !important;
+}
+
+/* Expanded user messages: scroll the text inside the bubble.
+ * Native xq0 renders expandableContainer > wrapper > content. Its collapsed
+ * height is set inline; restrict only the expanded text, not attachments/time. */
+[data-transcript-message][class*="userMessageContainer_"] [class*="expandableContainer_"] {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+[data-transcript-message][class*="userMessageContainer_"]
+  [class*="expandableContainer_"] > div > [class*="content_"]:not([class*="collapsed_"]) {
+  max-height: min(200px, 50vh);
+  width: 100%;
+  box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--vscode-scrollbarSlider-background, #666) transparent;
+}
+
+[data-transcript-message][class*="userMessageContainer_"]
+  [class*="expandableContainer_"] > div > [class*="content_"]::-webkit-scrollbar-button {
+  display: none;
+  height: 0;
+}
+
+/* Native buttons remain available to the click handler but are never shown. */
+html[data-claude-user-message-collapse="outside"]
+  [data-transcript-message][class*="userMessageContainer_"]
+  [class*="expandableContainer_"] button[class*="expandButton_"],
+html[data-claude-user-message-collapse="outside"]
+  [data-transcript-message][class*="userMessageContainer_"]
+  [class*="expandableContainer_"] > [class*="buttonContainer_"] {
+  display: none;
+}
+
+html[data-claude-user-message-collapse="outside"]
+  [data-transcript-message][class*="userMessageContainer_"]
+  [class*="expandableContainer_"] > div > [class*="content_"] {
+  transition: none;
+}
+
+html[data-claude-user-message-collapse="outside"]
+  [data-transcript-message][class*="userMessageContainer_"]
+  [class*="expandableContainer_"] > div > [class*="content_"]:not([class*="collapsed_"]) {
+  max-height: var(--claude-user-message-medium-height, 200px);
+}
+
+html[data-claude-user-message-collapse="outside"]
+  [data-transcript-message][class*="userMessageContainer_"]
+  [class*="expandableContainer_"][data-claude-message-height="max"] > div > [class*="content_"]:not([class*="collapsed_"]) {
+  max-height: var(--claude-user-message-max-height, 400px);
+}
+
+html[data-claude-user-message-collapse="outside"]
+  [data-transcript-message][class*="userMessageContainer_"]
+  [class*="expandableContainer_"] > div > [class*="content_"][class*="collapsed_"] {
+  max-height: var(--claude-user-message-initial-height, 60px) !important;
+}
+
+/* Folding must show the beginning even after scrolling the expanded text. */
+[data-transcript-message][class*="userMessageContainer_"]
+  [class*="expandableContainer_"] > div > [class*="content_"][class*="collapsed_"] {
+  overflow: clip;
+}
+
+/* ============================================================
+ * SESSION MOVER — кнопка 📁 и модалка переноса сессий между проектами.
+ * JS в claude-custom.js, IIFE «session mover».
+ * ============================================================ */
+
+/* Кнопка 📁 в .sessionActions_*. Подражаем .actionButton_OOQiHg
+ * (display:flex; cursor:pointer; padding:2px; border-radius:4px), но
+ * используем шрифтовой emoji вместо SVG-иконки. */
+.claude-move-session-btn {
+  display: flex;
+  cursor: pointer;
+  color: var(--app-secondary-foreground);
+  border-radius: 4px;
+  justify-content: center;
+  align-items: center;
+  padding: 2px 4px;
+  background: transparent;
+  border: none;
+  font-size: 12px;
+  line-height: 1;
+  font-family: inherit;
+}
+.claude-move-session-btn:hover {
+  background: var(--app-hover-background, rgba(255,255,255,0.08));
+}
+
+/* === Overlay + модалка === */
+.claude-move-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--vscode-font-family, system-ui, sans-serif);
+  font-size: 13px;
+  color: var(--app-primary-foreground, #ddd);
+}
+.claude-move-overlay.claude-move-busy {
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+.claude-move-modal {
+  background: var(--app-primary-background, #1f1f1f);
+  border: 1px solid var(--app-border-color, rgba(255,255,255,0.1));
+  border-radius: 8px;
+  padding: 16px 18px;
+  width: min(520px, 92vw);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+
+.claude-move-header {
+  font-size: 15px;
+  font-weight: 600;
+}
+.claude-move-subheader {
+  font-size: 13px;
+  color: var(--app-secondary-foreground, #aaa);
+  word-break: break-word;
+}
+.claude-move-sid {
+  font-size: 11px;
+  color: var(--app-tertiary-foreground, #888);
+  font-family: var(--vscode-editor-font-family, monospace);
+  margin-bottom: 4px;
+}
+
+.claude-move-loading,
+.claude-move-empty {
+  padding: 12px;
+  color: var(--app-secondary-foreground, #aaa);
+  text-align: center;
+}
+
+/* Лог попыток fetch к серверу */
+.claude-move-log {
+  margin-top: 6px;
+  max-height: 140px;
+  overflow-y: auto;
+  text-align: left;
+  font: 11px/1.45 var(--vscode-editor-font-family, monospace);
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--app-border-color, rgba(255,255,255,0.1));
+  border-radius: 4px;
+  padding: 6px 8px;
+  color: var(--app-secondary-foreground, #aaa);
+}
+.claude-move-log-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.claude-move-log-ok    { color: #51e00e; }
+.claude-move-log-err   { color: #ff7373; }
+
+.claude-move-section-label {
+  font-size: 12px;
+  color: var(--app-secondary-foreground, #aaa);
+  margin-top: 8px;
+  font-weight: 500;
+}
+
+/* Список проектов */
+.claude-move-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  max-height: 40vh;
+  margin-top: 2px;
+}
+.claude-move-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: transparent;
+  border: 1px solid transparent;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+}
+.claude-move-item:hover {
+  background: var(--app-hover-background, rgba(255,255,255,0.06));
+  border-color: var(--app-border-color, rgba(255,255,255,0.15));
+}
+.claude-move-item-name {
+  font-size: 13px;
+  word-break: break-word;
+}
+.claude-move-item-meta {
+  font-size: 11px;
+  color: var(--app-secondary-foreground, #888);
+}
+
+/* Создать новый проект */
+.claude-move-new-row {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+  margin-top: 2px;
+}
+.claude-move-new-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--app-border-color, rgba(255,255,255,0.15));
+  background: var(--app-input-background, rgba(0,0,0,0.25));
+  color: inherit;
+  font: inherit;
+}
+.claude-move-new-input:focus {
+  outline: 1px solid var(--app-accent-color, #519aba);
+  outline-offset: -1px;
+}
+.claude-move-new-btn,
+.claude-move-cancel {
+  padding: 6px 12px;
+  border-radius: 4px;
+  border: 1px solid var(--app-border-color, rgba(255,255,255,0.15));
+  background: var(--app-button-background, rgba(255,255,255,0.06));
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
+}
+.claude-move-new-btn:hover,
+.claude-move-cancel:hover {
+  background: var(--app-button-hover-background, rgba(255,255,255,0.1));
+}
+
+.claude-move-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+  gap: 8px;
+}
+
+/* Версия footer для confirm-диалога: чуть больший gap между кнопками,
+ * чтобы [Скопировать]/[Перенести]/[Отмена] не сливались. */
+.claude-move-footer-spaced {
+  gap: 12px;
+}
+
+/* Ghost-кнопка без фона и рамки (для «Назад» в confirm-диалоге).
+ * Перекрывает базовые стили .claude-move-cancel. */
+.claude-move-ghost,
+.claude-move-cancel.claude-move-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--app-secondary-foreground, #aaa);
+}
+.claude-move-ghost:hover,
+.claude-move-cancel.claude-move-ghost:hover {
+  background: var(--app-hover-background, rgba(255,255,255,0.06));
+}
+
+/* Зелёная кнопка «Скопировать» в confirm-диалоге. Использует тот же
+ * базовый класс .claude-move-new-btn, но переопределяет цвета. */
+.claude-move-copy,
+.claude-move-new-btn.claude-move-copy {
+  background: #2d8a3e;
+  border-color: #2d8a3e;
+  color: #fff;
+}
+.claude-move-copy:hover,
+.claude-move-new-btn.claude-move-copy:hover {
+  background: #36a44a;
+  border-color: #36a44a;
+}
+
+/* Confirmation-диалог (между списком проектов и финальным переносом) */
+.claude-move-confirm-question {
+  font-size: 13px;
+  color: var(--app-secondary-foreground, #aaa);
+  margin: 4px 0;
+}
+.claude-move-confirm-box {
+  background: var(--app-hover-background, rgba(255,255,255,0.04));
+  border: 1px solid var(--app-border-color, rgba(255,255,255,0.1));
+  border-radius: 4px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.claude-move-confirm-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--app-tertiary-foreground, #888);
+}
+.claude-move-confirm-value {
+  font-size: 14px;
+  font-weight: 500;
+  word-break: break-word;
+}
+.claude-move-confirm-path {
+  font-size: 11px;
+  color: var(--app-secondary-foreground, #888);
+  font-family: var(--vscode-editor-font-family, monospace);
+  word-break: break-all;
+  margin-top: 2px;
+}
+.claude-move-confirm-arrow {
+  text-align: center;
+  font-size: 18px;
+  color: var(--app-tertiary-foreground, #888);
+  margin: -2px 0;
+}
+
+/* Success-экран после переноса */
+.claude-move-success .claude-move-header {
+  color: #51e00e;
+}
+.claude-move-hint {
+  font-size: 12px;
+  color: var(--app-secondary-foreground, #aaa);
+  padding: 10px 12px;
+  margin-top: 6px;
+  background: var(--app-hover-background, rgba(255,255,255,0.04));
+  border-radius: 4px;
+  line-height: 1.5;
+}
+
+/* ============================================================
+ * EMOJI PICKER — кнопка 😀 в футере поля ввода и панель выбора.
+ * JS в claude-custom.js, IIFE «EMOJI PICKER»; включается параметром
+ * emojiPicker в claude-custom-config.toml.
+ * ============================================================ */
+
+/* Кнопка наследует классы соседней штатной кнопки (.micButton_* или
+ * .menuButton_* — 26×26, flex-center, родной hover), здесь только то,
+ * что отличает её: шрифтовой emoji вместо SVG-иконки. */
+.claude-emoji-btn {
+  font-size: 15px;
+  /* Запас по line-height + visible — иначе UA-стиль <button>
+   * (`overflow: clip`) срезает верх и низ цветного глифа. */
+  line-height: 1.2;
+  overflow: visible;
+  font-family: inherit;
+  /* Штатные иконки окрашены в --app-secondary-foreground; для эмодзи
+   * цвет не применяется, но прозрачность делает кнопку тише соседних,
+   * пока на неё не навели. */
+  opacity: 0.75;
+}
+.claude-emoji-btn:hover {
+  opacity: 1;
+}
+
+.claude-emoji-input-host { position: relative; }
+.claude-emoji-standalone {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  z-index: 2;
+  display: flex;
+}
+.claude-emoji-standalone .claude-emoji-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+.claude-emoji-standalone .claude-emoji-btn:hover {
+  background: var(--app-hover-background, rgba(255,255,255,0.08));
+}
+.claude-emoji-input-host [class*="messageInput_"],
+.claude-emoji-input-host [class*="mentionMirror_"] {
+  padding-right: 40px;
+}
+
+/* Основное место кнопки — контейнер микрофона в правом верхнем углу
+ * поля ввода. Он абсолютный (top:5px; right:0) и по умолчанию
+ * раскладывает детей блоками, из-за чего 😀 встала бы НАД микрофоном;
+ * flex ставит её слева от него. Класс навешивает JS — `:has()`
+ * в этом webview не отрабатывает (см. историю с .claude-ts-line). */
+.claude-emoji-mic-host {
+  display: flex;
+  align-items: center;
+}
+.claude-emoji-mic-host .claude-emoji-btn {
+  width: 26px;
+  height: 26px;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* Место под вторую иконку: у поля ввода правый отступ рассчитан на
+ * один микрофон (padding-right: 36px), без добавки текст заезжает
+ * под 😀. Маркер ставится только когда кнопка реально встроена.
+ * Во время записи микрофон разворачивается в широкую плашку —
+ * там своё правило на 64px и наша кнопка скрыта. */
+/* Отступ ОБЯЗАН меняться у обоих элементов сразу.
+ *
+ * Поле ввода рендерит текст прозрачным (`color:#0000`), видно только
+ * каретку; сам текст рисует зеркальный `.mentionMirror_*` поверх него
+ * (`position:absolute; inset:0`). Геометрия у них штатно одинаковая —
+ * `padding:10px 36px 10px 14px` у каждого.
+ *
+ * Если поменять отступ только настоящему полю, невидимый текст начнёт
+ * переноситься раньше видимого. Каретка следует за невидимой раскладкой,
+ * буквы — за зеркалом, и на каждой新 строке расхождение накапливается:
+ * курсор уезжает вперёд на всё большее число символов. Одну строку
+ * это не задевает, поэтому баг проявляется только с третьей-четвёртой. */
+.claude-emoji-inline [class*="messageInput_"],
+.claude-emoji-inline [class*="mentionMirror_"] {
+  padding-right: 62px;
+}
+
+/* Во время записи микрофон разворачивается в широкую плашку, наша
+ * кнопка скрыта (правило ниже), и штатный отступ снова равен 64px —
+ * возвращаем его обоим, иначе наши 62px оставят текст под плашкой. */
+[data-recording="true"] .claude-emoji-inline [class*="messageInput_"],
+[data-recording="true"] .claude-emoji-inline [class*="mentionMirror_"] {
+  padding-right: 64px;
+}
+[data-recording="true"] .claude-emoji-btn {
+  display: none;
+}
+
+/* === Панель === */
+.claude-emoji-panel {
+  position: fixed;
+  z-index: 100000;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(340px, calc(100vw - 12px));
+  padding: 8px;
+  background: var(--app-primary-background, var(--vscode-editorHoverWidget-background, #1f1f1f));
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  font-family: var(--vscode-font-family, system-ui, sans-serif);
+  font-size: 13px;
+  color: var(--app-primary-foreground, #ddd);
+}
+
+.claude-emoji-search-row {
+  display: flex;
+}
+.claude-emoji-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.15));
+  border-radius: 4px;
+  background: var(--app-input-background, rgba(0, 0, 0, 0.25));
+  color: inherit;
+  font: inherit;
+}
+.claude-emoji-search:focus {
+  outline: 1px solid var(--app-claude-orange, var(--app-accent-color, #519aba));
+  outline-offset: -1px;
+}
+
+/* === Табы категорий === */
+.claude-emoji-tabs {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.1));
+}
+.claude-emoji-tabs::-webkit-scrollbar {
+  display: none;
+}
+.claude-emoji-tab {
+  flex: 0 0 auto;
+  padding: 3px 5px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1.3;
+  overflow: visible;
+  font-family: inherit;
+  opacity: 0.55;
+}
+.claude-emoji-tab:hover {
+  opacity: 1;
+  background: var(--app-hover-background, rgba(255, 255, 255, 0.07));
+}
+.claude-emoji-tab-active {
+  opacity: 1;
+  background: var(--app-hover-background, rgba(255, 255, 255, 0.1));
+  box-shadow: inset 0 -2px 0 var(--app-claude-orange, var(--app-accent-color, #519aba));
+}
+
+/* === Сетка смайликов ===
+ * auto-fill вместо фиксированного числа колонок: панель Claude Code
+ * может быть узкой (боковая) или широкой (вкладка редактора), сетка
+ * подстраивается сама. JS считает число колонок из ширины ячейки,
+ * поэтому навигация стрелками остаётся корректной. */
+.claude-emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(34px, 1fr));
+  /* Высота строки фиксированная, а не aspect-ratio: при широкой
+   * панели квадратные ячейки растягивались вслед за шириной колонки
+   * и сетка занимала пол-экрана. */
+  grid-auto-rows: 34px;
+  gap: 2px;
+  /* Ровно шесть рядов: 6 строк по 34px + 5 промежутков по 2px. */
+  max-height: calc(34px * 6 + 2px * 5);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.claude-emoji-cell {
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 18px;
+  /* Цветной эмодзи рисуется выше своего em-box, а UA-стиль браузера
+   * добавляет <button> `overflow: clip` — при line-height:1 глиф
+   * срезался сверху и снизу. Запас по line-height + visible. */
+  line-height: 1.2;
+  overflow: visible;
+  font-family: inherit;
+  color: inherit;
+}
+.claude-emoji-cell:hover {
+  background: var(--app-hover-background, rgba(255, 255, 255, 0.1));
+}
+.claude-emoji-cell-active {
+  background: var(--app-hover-background, rgba(255, 255, 255, 0.14));
+  outline: 1px solid var(--app-claude-orange, var(--app-accent-color, #519aba));
+  outline-offset: -1px;
+}
+
+.claude-emoji-empty {
+  grid-column: 1 / -1;
+  padding: 16px 8px;
+  text-align: center;
+  color: var(--app-secondary-foreground, #888);
+}
+
+/* === Превью выбранного === */
+.claude-emoji-preview {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 20px;
+  padding-top: 4px;
+  border-top: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.1));
+  color: var(--app-secondary-foreground, #888);
+  font-size: 11px;
+}
+.claude-emoji-preview-ch {
+  font-size: 16px;
+  line-height: 1.2;
+}
+.claude-emoji-preview-name {
+  font-family: var(--vscode-editor-font-family, monospace);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ============================================================
+ * CACHE USAGE BUTTON — модуль CACHE USAGE BUTTON в claude-custom.js.
+ * Кнопка «Cache» в футере слева от «Править автоматически» и панель
+ * со статистикой prompt-кэша сессии. Включается параметром
+ * cacheButton в claude-custom-config.toml.
+ * ============================================================ */
+
+/* Кнопка копирует класс соседней штатной `<button>` футера
+ * (`footerButton_<hash>`), поэтому размеры, шрифт и hover достаются
+ * даром. Здесь — только приглушение до наведения, как у 😀.
+ * Ничего не сбрасываем: этот файл грузится ПОСЛЕ стилей расширения,
+ * и любой background/border здесь перекрыл бы родной hover. */
+.claude-usage-btn {
+  opacity: 0.75;
+}
+.claude-usage-btn:hover {
+  opacity: 1;
+}
+/* Подпись жирнее соседних: кнопка открывает панель, а не переключает
+ * режим, и должна читаться как отдельное действие. Правило адресует
+ * <span> внутри — сама кнопка носит класс штатной footerButton_,
+ * и font-weight на ней сбил бы наследование от неё. */
+.claude-usage-btn > span {
+  font-weight: 600;
+}
+
+/* Запасной вид: донора стиля не нашлось (футер перестроили или
+ * кнопок в нём нет). Без этого проступает UA-оформление <button> —
+ * серая плашка с рамкой, которая в футере смотрится чужеродно.
+ * Класс навешивает JS: отличить случай селектором нельзя,
+ * `:has()` в этом webview не отрабатывает. */
+.claude-usage-btn-bare {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.claude-usage-btn-bare:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.08));
+}
+/* Иконка отдана в 20×20 (как штатные), масштаб задаёт footerButton_.
+ * В запасном виде этого класса нет — размер приходится ставить самим. */
+.claude-usage-btn-bare svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.claude-chat-scroll-bottom {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.2));
+  border-radius: 50%;
+  background: var(--app-primary-background, #1f1f1f);
+  color: var(--app-primary-foreground, #ddd);
+  font: 24px/1 var(--vscode-font-family, system-ui, sans-serif);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+.claude-chat-scroll-bottom[hidden] { display: none; }
+.claude-chat-scroll-bottom:hover { background: var(--vscode-toolbar-hoverBackground, #333); }
+.claude-chat-scroll-bottom:focus-visible { outline: 2px solid var(--vscode-focusBorder, #3794ff); outline-offset: 2px; }
+
+.claude-cache-panel {
+  position: fixed;
+  z-index: 100000;
+  display: flex;
+  flex-direction: column;
+  width: min(360px, calc(100vw - 12px));
+  /* Список промахов может быть длинным — ограничиваем высоту и
+   * скроллим внутри, чтобы панель не уезжала за верх окна. */
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+  padding: 10px 12px;
+  background: var(--app-primary-background, var(--vscode-editorHoverWidget-background, #1f1f1f));
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  font-family: var(--vscode-font-family, system-ui, sans-serif);
+  font-size: 12px;
+  color: var(--app-primary-foreground, #ddd);
+}
+
+.claude-cache-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.claude-usage-history-tabs {
+  display: flex;
+  gap: 5px;
+  margin: 0 0 6px;
+  border-bottom: 1px solid var(--app-border-color, #444);
+}
+.claude-usage-history-tabs button {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 5px 12px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  opacity: 0.65;
+}
+.claude-usage-history-tabs button[aria-selected="true"] {
+  border-bottom-color: var(--vscode-focusBorder, #3794ff);
+  opacity: 1;
+}
+.claude-usage-history-tabs button:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder, #3794ff);
+}
+.claude-usage-history-pane,
+.claude-usage-chat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.claude-usage-history-pane[hidden] { display: none; }
+.claude-usage-chat-entry {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  overflow-wrap: anywhere;
+}
+.claude-usage-chat-entry summary { cursor: pointer; }
+.claude-usage-chat-entry details[open] > summary {
+  white-space: pre-wrap;
+}
+.claude-usage-chat-entry .claude-user-message-time { margin: 4px 0 0; }
+.claude-usage-chat-meta { display: flex; align-items: baseline; gap: 6px; }
+.claude-usage-chat-meta > div { min-width: 0; }
+.claude-usage-chat-jump {
+  flex: none;
+  padding: 0 3px;
+  border: 0;
+  background: transparent;
+  color: var(--vscode-textLink-foreground, #3794ff);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+.claude-usage-chat-jump:hover { background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.1)); }
+.claude-usage-chat-jump:focus-visible { outline: 1px solid var(--vscode-focusBorder, #3794ff); }
+.claude-message-jump-highlight { outline: 2px solid var(--vscode-focusBorder, #3794ff); outline-offset: -2px; }
+
+.claude-cache-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.claude-cache-head-sub {
+  margin-top: 8px;
+  font-size: 12px;
+  opacity: 0.8;
+}
+.claude-cache-sub {
+  font-weight: 400;
+  font-size: 11px;
+  opacity: 0.6;
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+/* Local send time beneath the complete user message, including attachments. */
+.claude-user-message-time {
+  display: block;
+  margin: 3px 6px 6px;
+  font-size: 11px;
+  font-style: italic;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  cursor: default;
+}
+
+.claude-user-message-time .claude-user-message-completion {
+  color: var(--vscode-charts-red, #f14c4c) !important;
+}
+.claude-user-message-time .claude-user-message-date {
+  color: #ff9800 !important;
+}
+.claude-user-message-time .claude-user-message-duration {
+  color: #cbcb41 !important;
+}
+.claude-user-message-time .claude-user-message-cost {
+  color: #7fff00 !important;
+}
+
+.claude-cache-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.claude-cache-label {
+  opacity: 0.72;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.claude-cache-value {
+  flex-shrink: 0;
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+/* Смысловая подсветка: попадания и экономия — зелёным, промахи
+ * и потери — красным. Цвета берём из палитры VSCode, чтобы тема
+ * пользователя не спорила с панелью. */
+.claude-cache-hit .claude-cache-value {
+  color: var(--vscode-charts-green, #89d185);
+}
+
+/* Сводка попаданий остаётся одной строкой, но по клику раскрывает
+ * прежние серии. Клавиатурный focus обязателен: строка имеет role=button. */
+.claude-cache-expandable {
+  padding: 1px 3px;
+  margin: -1px -3px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.claude-cache-expandable:hover,
+.claude-cache-expandable:focus-visible {
+  background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.06));
+  outline: none;
+}
+.claude-cache-expandable:focus-visible {
+  box-shadow: 0 0 0 1px var(--vscode-focusBorder, #007fd4);
+}
+.claude-cache-hit-details {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 4px 0 3px 7px;
+  padding-left: 7px;
+  border-left: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+}
+.claude-cache-hit-details[hidden] {
+  display: none;
+}
+.claude-cache-hit-detail {
+  font-size: 11px;
+}
+.claude-cache-miss .claude-cache-value {
+  color: var(--vscode-charts-red, #f14c4c);
+}
+
+/* Промах при паузе короче TTL — аномалия: кэш обязан был выжить,
+ * а префикс переписан целиком. Красим строку целиком, а не только
+ * значение: такие случаи надо выхватывать глазом из общего списка. */
+.claude-cache-unexpected .claude-cache-label,
+.claude-cache-unexpected .claude-cache-value {
+  color: var(--vscode-charts-red, #f14c4c);
+}
+
+/* Пауза длиннее TTL — кэш вытеснен по времени, это ожидаемо. Жёлтый,
+ * а не красный: деньги потеряны так же, но винить тут нечего. */
+.claude-cache-expired .claude-cache-label,
+.claude-cache-expired .claude-cache-value,
+.claude-cache-other-count {
+  color: var(--vscode-charts-yellow, #e2c08d);
+}
+
+/* Промах сразу после смены модели или аккаунта. Кэш в этот момент
+ * холодный по определению, винить некого — поэтому не красный и не
+ * жёлтый, а приглушённый: строка объясняет, а не тревожит. Тем же
+ * цветом помечена сводная строка «из них после переключений». */
+.claude-cache-explained .claude-cache-label,
+.claude-cache-explained .claude-cache-value {
+  color: var(--app-secondary-foreground, #9aa0a6);
+}
+
+/* Переключение модели или аккаунта — не потеря, а событие, поэтому
+ * из палитры потерь оно выпадает совсем. Синий отделяет причину от
+ * следствия: в ленте события стоят вперемешку с промахами, и глаз
+ * должен различать их без чтения. */
+.claude-cache-event .claude-cache-label,
+.claude-cache-event .claude-cache-value {
+  color: var(--vscode-charts-blue, #3794ff);
+}
+
+/* Смена аккаунта весомее смены модели: она тянет за собой и модель,
+ * и провайдера, и лимиты. */
+.claude-cache-event-account .claude-cache-value {
+  font-weight: 600;
+}
+
+/* Переключение, после которого хода ещё не было: кэш не проверялся,
+ * и обещать «обошлось» нельзя. Пунктир снизу — знак незавершённости,
+ * тот же приём, что у черновиков в интерфейсах. */
+.claude-cache-event-pending .claude-cache-label {
+  border-bottom: 1px dashed var(--vscode-charts-blue, #3794ff);
+}
+
+/* Пояснение приходит из title, поэтому курсор должен намекать,
+ * что на строку стоит навести. */
+.claude-cache-unexpected,
+.claude-cache-expired,
+.claude-cache-explained,
+.claude-cache-event {
+  cursor: help;
+}
+
+.claude-cache-panel hr {
+  width: 100%;
+  margin: 6px 0;
+  border: 0;
+  border-top: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+}
+
+.claude-cache-empty {
+  padding: 6px 0;
+  opacity: 0.7;
+}
+
+/* ============================================================
+ * BYPASS BUTTON — модуль BYPASS BUTTON в claude-custom.js.
+ * Кнопка «ByPass» между Cache и «Править автоматически».
+ * Включается параметром bypassButton в claude-custom-config.toml.
+ * ============================================================ */
+
+.claude-bypass-btn {
+  opacity: 0.75;
+}
+.claude-bypass-btn:hover {
+  opacity: 1;
+}
+.claude-bypass-btn > span {
+  font-weight: 600;
+}
+
+/* Включённый режим — предупреждающий цвет: подтверждения отключены,
+ * и это должно быть заметно, а не спрятано в оттенке прозрачности. */
+.claude-bypass-btn.claude-bypass-on {
+  opacity: 1;
+  /* Не var(--vscode-charts-yellow): в тёмных темах это приглушённое
+   * золото (#d7ba7d), и рядом с белой подписью молния тонет. Берём
+   * насыщенный жёлтый явно — сигнальный цвет тут важнее темизации. */
+  color: #ffd21e;
+}
+
+/* Подпись — белая, при жёлтой молнии. Одноцветный вариант (текст тоже
+ * #ffd21e) пробовали: кнопка становится ЗАМЕТНО тише — жёлтый на тёмном
+ * фоне сам по себе приглушён, а контраст даёт именно белый текст рядом
+ * с цветной иконкой. Не «унифицировать» обратно. */
+.claude-bypass-btn.claude-bypass-on > span {
+  color: #fff;
+}
+
+/* Запасной вид, когда донора стиля не нашлось (см. claude-usage-btn-bare). */
+.claude-bypass-btn-bare {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.claude-bypass-btn-bare:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.08));
+}
+.claude-bypass-btn-bare svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+/* ============================================================
+ * FIND IN PAGE — модуль FIND IN PAGE в claude-custom.js.
+ * Кнопка 🔍 рядом с иконкой автосжатия и строка поиска по переписке.
+ * Включается параметром findInPage в claude-custom-config.toml.
+ * ============================================================ */
+
+/* Кнопка копирует класс штатной кнопки футера, поэтому размеры и hover
+ * достаются даром — здесь только приглушение до наведения. */
+.claude-find-btn {
+  opacity: 0.75;
+}
+.claude-find-btn:hover {
+  opacity: 1;
+}
+
+/* Запасной вид: донора стиля не нашлось. Иконку автосжатия показывают
+ * только при заметном расходе контекста, так что этот случай штатный,
+ * а не исключительный — без правила проступает UA-оформление <button>
+ * (серая плашка с рамкой), чужеродное в футере. */
+.claude-find-btn-bare {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  height: 26px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.claude-find-btn-bare:hover {
+  background: var(--app-ghost-button-hover-background,
+    var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.08)));
+}
+.claude-find-btn-bare svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+/* Подсветка совпадений. ::highlight() рисует поверх текста, не меняя
+ * разметку — потому и выбран Highlight API: переписка React-управляемая,
+ * вставленные <mark> слетали бы на каждом ре-рендере. */
+::highlight(claude-find) {
+  background-color: rgba(255, 214, 0, 0.35);
+  color: inherit;
+}
+::highlight(claude-find-active) {
+  background-color: #ffd600;
+  color: #000;
+}
+
+.claude-find-bar {
+  position: fixed;
+  z-index: 100001;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--app-primary-background, var(--vscode-editorHoverWidget-background, #1f1f1f));
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  font-family: var(--vscode-font-family, system-ui, sans-serif);
+  font-size: 12px;
+  color: var(--app-primary-foreground, #ddd);
+}
+
+.claude-find-input {
+  width: 220px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.15));
+  background: var(--app-input-background, rgba(0, 0, 0, 0.25));
+  color: inherit;
+  font: inherit;
+}
+.claude-find-input:focus {
+  outline: 1px solid var(--app-accent-color, #519aba);
+  outline-offset: -1px;
+}
+
+.claude-find-count {
+  min-width: 84px;
+  text-align: right;
+  opacity: 0.7;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+}
+
+.claude-find-nav {
+  padding: 2px 7px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1.2;
+  cursor: pointer;
+  opacity: 0.75;
+}
+.claude-find-nav:hover {
+  opacity: 1;
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.08));
+}
+
+/* ============================================================
+ * CACHE KEEPALIVE — модуль CACHE KEEPALIVE в claude-custom.js.
+ * Кнопка «Cache» между Usage и ByPass: держит prompt-кэш живым.
+ * Включается параметром cacheKeepalive в claude-custom-config.toml.
+ * ============================================================ */
+
+.claude-keepalive-btn {
+  opacity: 0.75;
+}
+.claude-keepalive-btn:hover {
+  opacity: 1;
+}
+.claude-keepalive-btn > span {
+  font-weight: 600;
+}
+
+/* Включённое поддержание. Цвет адресован ИКОНКЕ, а не всей кнопке:
+ * иначе он наследуется подписью, и слово «Cache» красится целиком.
+ * Подпись остаётся светлой — как у ByPass, где цветная только молния.
+ *
+ * Зелёный — #51e00e, тот же, что у меток времени (.claude-ts-line):
+ * это «наш» цвет в проекте. Палитровый --vscode-charts-green (#89d185)
+ * для футера слишком тусклый, поэтому значение задано напрямую. */
+.claude-keepalive-btn.claude-keepalive-on {
+  opacity: 1;
+}
+.claude-keepalive-btn.claude-keepalive-on svg {
+  color: #51e00e;
+}
+/* Именно #fff, а не --app-primary-foreground: штатная кнопка футера
+ * красится в --app-secondary-foreground (приглушённый), и «первичный»
+ * поверх него всё равно читается мягче, чем цветная подпись соседа.
+ * Чистый белый уравнивает Cache с ByPass по яркости. */
+.claude-keepalive-btn.claude-keepalive-on > span {
+  color: #fff;
+}
+
+.claude-keepalive-btn-bare {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.claude-keepalive-btn-bare:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.08));
+}
+.claude-keepalive-btn-bare svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+/* Уведомление вместо включения, когда контекст ещё мал. Всплывает
+ * над кнопкой, гасится кликом мимо, Escape или по таймауту. */
+.claude-keepalive-note {
+  position: fixed;
+  z-index: 100000;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: min(320px, calc(100vw - 12px));
+  padding: 10px 12px;
+  background: var(--app-primary-background, var(--vscode-editorHoverWidget-background, #1f1f1f));
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  font-family: var(--vscode-font-family, system-ui, sans-serif);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--app-primary-foreground, #ddd);
+}
+.claude-keepalive-note-head {
+  font-weight: 600;
+}
+.claude-keepalive-note-line {
+  opacity: 0.75;
+}
+
+/* Подпись «чья это статистика» — мелко и тихо, но всегда на виду:
+ * при промахе автоопределения панель обязана честно сказать, что
+ * показывает не эту вкладку. */
+.claude-cache-foot {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  opacity: 0.55;
+}
+
+/* ============================================================
+ * ACCOUNT SWITCHER BUTTON — модуль ACCOUNT SWITCHER BUTTON
+ * в claude-custom.js. Кнопка «Accs» слева от Usage и панель
+ * со списком settings-файлов ~/.claude/settings*.json.
+ * Включается параметром accountsButton в claude-custom-config.toml.
+ * ============================================================ */
+
+/* Кнопка копирует класс штатной footerButton_ — размеры, шрифт
+ * и hover достаются даром (см. комментарий у .claude-usage-btn). */
+.claude-accs-btn {
+  opacity: 0.75;
+}
+.claude-accs-btn:hover {
+  opacity: 1;
+}
+.claude-accs-btn > span {
+  font-weight: 600;
+}
+
+/* Запасной вид, когда донора стиля не нашлось (см. claude-usage-btn-bare). */
+.claude-accs-btn-bare {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.claude-accs-btn-bare:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.08));
+}
+.claude-accs-btn-bare svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+/* Ширину задаёт строка аккаунта claude.ai: «Anthropic Pro (почта)» в
+ * первой строке и две шкалы лимитов во второй. На 400px почта начинала
+ * обрезаться многоточием, а шкалам не хватало длины: они должны быть
+ * достаточно длинными, чтобы разница в несколько процентов читалась
+ * без чтения цифр. */
+.claude-accs-panel {
+  position: fixed;
+  z-index: 100000;
+  display: flex;
+  flex-direction: column;
+  /* Ширина по содержимому, а не числом: при фиксированной ширине
+   * шестерёнки стояли у правого края панели, далеко от коротких
+   * строк. Теперь панель ровно по самой длинной строке, и колонка
+   * шестерёнок примыкает к ней. Нижняя граница — чтобы панель не
+   * схлопывалась на коротком списке, верхняя — чтобы длинный
+   * endpoint не растянул её на весь экран. */
+  width: max-content;
+  min-width: 360px;
+  max-width: min(560px, calc(100vw - 12px));
+  max-height: min(70vh, 480px);
+  overflow-y: auto;
+  padding: 10px 12px;
+  background: var(--app-primary-background, var(--vscode-editorHoverWidget-background, #1f1f1f));
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  font-family: var(--vscode-font-family, system-ui, sans-serif);
+  font-size: 12px;
+  color: var(--app-primary-foreground, #ddd);
+}
+
+.claude-accs-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.claude-accs-head {
+  margin-bottom: 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* Пункт списка — <button>, поэтому UA-оформление снимаем явно:
+ * иначе в панели проступит серая плашка с рамкой. */
+.claude-accs-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.claude-accs-row:hover {
+  background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.07));
+}
+
+/* Every account row opens its usage details, including the active one. */
+.claude-accs-row-active {
+  cursor: pointer;
+}
+
+.claude-accs-details { width: min(510px, calc(100vw - 52px)); }
+.claude-accs-detail-toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.claude-accs-detail-button {
+  border: 1px solid var(--app-border-color, #555); border-radius: 4px;
+  padding: 4px 8px; background: transparent; color: inherit; font: inherit; cursor: pointer;
+}
+.claude-accs-detail-button:hover { background: var(--vscode-list-hoverBackground, #333); }
+.claude-accs-detail-button.claude-accs-use-account { background: #0e639c; border-color: #1683c5; color: #fff; }
+.claude-accs-detail-button.claude-accs-use-account:hover { background: #1177bb; }
+.claude-accs-detail-note { color: var(--vscode-descriptionForeground, #aaa); margin: 6px 0; line-height: 1.5; overflow-wrap: anywhere; }
+.claude-accs-detail-overview { display: block; }
+.claude-accs-detail-identity { display: flex; flex-direction: column; gap: 4px; min-width: 0; margin-bottom: 8px; }
+.claude-accs-detail-identity .claude-accs-head { flex: 0 0 auto; margin: 0; white-space: nowrap; }
+.claude-accs-detail-identity .claude-accs-detail-note { min-width: 0; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; }
+.claude-accs-weekly { width: 100%; }
+.claude-accs-weekly[hidden] { display: none; }
+.claude-accs-limit-section { margin: 8px 0; }
+.claude-accs-limit-toggle { background: none; border: 0; padding: 0 0 2px; color: #c586ff; border-bottom: 1px dashed currentColor; font: inherit; cursor: pointer; }
+.claude-accs-limit-short { color: #cbcb41; }
+.claude-accs-limit-toggle:focus-visible { outline: 1px solid currentColor; outline-offset: 3px; }
+.claude-accs-limit-body { padding-bottom: 20px; }
+.claude-accs-limit-body[hidden] { display: none; }
+.claude-accs-limit-body > .claude-accs-weekly-bars { max-width: 280px; }
+.claude-accs-short-scroll { overflow-x: auto; padding-bottom: 23px; }
+.claude-accs-short-bars { min-width: 100%; width: max-content; }
+.claude-accs-short-bars .claude-accs-chart-column { flex: 0 0 28px; width: 28px; }
+.claude-accs-weekly-heading { font-size: 10px; color: #aaa; margin-bottom: 3px; }
+.claude-accs-weekly select { background: #202020; color: inherit; border: 1px solid #555; border-radius: 4px; font: inherit; font-size: 10px; padding: 1px; }
+.claude-accs-weekly-bars { display: flex; gap: 9px; height: 62px; padding-top: 18px; border-bottom: 1px solid #666; }
+.claude-accs-weekly-bars .claude-accs-chart-column { max-width: 44px; cursor: default; }
+.claude-accs-weekly-bars .claude-accs-chart-fill { background: #7fff0025; }
+.claude-accs-detail-cost { color: #7fff00; }
+.claude-accs-chart { margin: 10px 0; }
+.claude-accs-chart-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.claude-accs-chart-controls button[aria-pressed="true"] { border-color: #7fff00; color: #7fff00; }
+.claude-accs-chart-controls button:disabled { opacity: .35; cursor: default; }
+.claude-accs-chart input, .claude-accs-chart select {
+  background: var(--app-primary-background, #202020); color: inherit; border: 1px solid #555;
+  border-radius: 4px; font: inherit; padding: 3px; color-scheme: dark;
+}
+.claude-accs-chart-plot { background: #101310; padding: 6px 5px 24px; border-radius: 4px; margin-top: 6px; }
+.claude-accs-chart-axis { height: 20px; font-size: 10px; color: #aaa; }
+.claude-accs-chart-bars {
+  display: flex; align-items: stretch; height: 100px; gap: 2px; border-bottom: 1px solid #666;
+  background: repeating-linear-gradient(to top, transparent 0, transparent 24px, #ffffff0a 24px, #ffffff0a 25px);
+}
+.claude-accs-chart-column {
+  flex: 1 1 0; min-width: 0; height: 100%; padding: 0; border: 0; background: transparent;
+  position: relative; display: flex; align-items: flex-end; cursor: pointer; color: inherit;
+}
+.claude-accs-chart-fill { display: block; width: 100%; background: #7fff0066; border: 1px solid #7fff00; box-sizing: border-box; }
+.claude-accs-chart-fill[data-missing="true"] { background: #777; border-color: #777; }
+.claude-accs-chart-value { position: absolute; left: 50%; transform: translateX(-50%); color: #cbcb41; font-size: 9px; line-height: 11px; white-space: nowrap; pointer-events: none; }
+.claude-accs-chart-column:hover, .claude-accs-chart-column:focus-visible { background: #ffffff18; outline: 1px solid #aaa; }
+.claude-accs-chart-tick { position: absolute; top: calc(100% + 5px); left: 50%; transform: translateX(-50%); font-size: 9px; color: #aaa; }
+.claude-accs-chart-column[data-current="true"] .claude-accs-chart-tick { color: #ff5252; }
+.claude-accs-chart-pair { flex: 1 1 0; min-width: 24px; position: relative; }
+.claude-accs-chart-pair > .claude-accs-chart-column { position: absolute; inset: 0; width: 100%; pointer-events: none; }
+.claude-accs-chart-pair > .claude-accs-chart-column .claude-accs-chart-fill { pointer-events: auto; }
+.claude-accs-chart-pair > .claude-accs-chart-column[data-outline="false"] { z-index: 2; }
+.claude-accs-chart-pair > .claude-accs-chart-column[data-outline="true"] { z-index: 1; }
+.claude-accs-chart-pair[data-current="true"] > .claude-accs-chart-tick { color: #ff5252; }
+.claude-accs-chart-pair .claude-accs-chart-value { font-size: 8px; }
+.claude-accs-chart-plot[data-combined="true"] { overflow-x: auto; }
+.claude-accs-chart-bars[data-combined="true"] { min-width: max-content; }
+.claude-accs-chart-hint { min-height: 30px; line-height: 1.4; margin-top: 5px; color: #bbb; font-size: 11px; }
+.claude-accs-chart-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font-size: 10px; }
+.claude-accs-chart-key-local { color: #7fff00; }
+.claude-accs-chart-key-external { color: #409cff; }
+.claude-accs-chart-legend span::before { content: '■ '; }
+@media (max-width: 460px) { .claude-accs-chart-column:nth-child(even) .claude-accs-chart-tick { visibility: hidden; } }
+.claude-accs-row-active .claude-accs-name {
+  font-weight: 600;
+}
+
+/* Колонка галки фиксированной ширины: без неё названия неактивных
+ * аккаунтов съезжали бы влево относительно активного. */
+.claude-accs-mark {
+  flex: 0 0 12px;
+  color: var(--vscode-charts-green, #89d185);
+  line-height: 1.45;
+}
+
+/* Колонка занимает всю ширину строки: иначе она сжалась бы по самой
+ * длинной надписи, и полоски под ней не дотянулись бы до правого края. */
+.claude-accs-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 1px;
+}
+
+/* Строка имени — flex-ряд: название аккаунта и приписка с тарифом и
+ * почтой. min-width:0 нужен, чтобы обрезалась именно приписка, а не
+ * съезжало название. */
+.claude-accs-name {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  line-height: 1.45;
+}
+
+/* Тариф и почта: приглушены и моноширинные, как служебная строка —
+ * главным словом строки остаётся имя аккаунта. */
+.claude-accs-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  font-weight: 400;
+  opacity: 0.6;
+}
+
+/* Endpoint — служебная строка: моноширинный, приглушённый,
+ * с обрезкой длинных URL многоточием. */
+.claude-accs-sub {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  opacity: 0.6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Срок подписки — в строке имени, сразу после тарифа и почты,
+ * тем же служебным слогом, что и приписка meta: моно, приглушено,
+ * обрезка многоточием. Жёлтым — меньше недели до конца (время
+ * продлевать), красным — истёкшая; у обеих приглушение снято,
+ * иначе цвет на фоне панели не различить. Точные числа —
+ * в подсказке. */
+.claude-accs-paid {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  opacity: 0.6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.claude-accs-paid[data-level="1"] {
+  opacity: 1;
+  color: var(--vscode-charts-yellow, #cca700);
+}
+.claude-accs-paid[data-level="2"] {
+  opacity: 1;
+  color: var(--vscode-charts-red, #f14c4c);
+}
+
+/* --- лимиты подписки claude.ai -----------------------------------------
+ *
+ * Две полоски (5 ч и 7 дн) справа в строке аккаунта Anthropic; у Max
+ * к ним добавляются окна по моделям, поэтому блок — колонка, а не
+ * жёсткая пара. Ширина полосок фиксированная: тянуться должна подпись
+ * с endpoint'ом, а сами полоски у всех строк обязаны стоять
+ * в одну колонку, иначе их не сравнить взглядом.
+ *
+ * Цвета взяты те же, что у штатной панели «Account & Usage»
+ * (--app-progressbar-background, --app-claude-orange): одно и то же
+ * число в двух местах интерфейса не должно выглядеть по-разному. */
+/* Полоски идут второй строкой под именем и в один ряд: сперва
+ * пятичасовое окно, следом недельное. Справа от имени места нет —
+ * его занимает почта. */
+.claude-accs-usage {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  margin-top: 4px;
+}
+
+/* Данные из кэша Claude Code: пока сессия идёт через стороннего
+ * провайдера, обновлять их некому. Приглушением честно показываем,
+ * что числа могли устареть. */
+.claude-accs-usage-stale {
+  opacity: 0.45;
+}
+
+/* Идёт запрос свежих чисел у расширения. Полоски не прячем и не
+ * обнуляем: кэшированное значение — уже полезная правда, а мигание
+ * пустотой на полсекунды читалось бы как «лимитов нет». */
+.claude-accs-usage-busy {
+  animation: claude-accs-usage-pulse 1s ease-in-out infinite;
+}
+
+@keyframes claude-accs-usage-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+
+/* Группа окна занимает ровно столько, сколько нужно её содержимому.
+ * Растянутые на равные половины строки группы копили лишнее место
+ * внутри себя, и между шкалами зияла дыра. Одинаковую ширину групп
+ * (а значит, и сравнимость шкал) держит min-width у подписи, а не
+ * растяжение. */
+.claude-accs-usage-row {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 5px;
+}
+
+/* Подписи окон и проценты — тем же кеглем, что и остальной текст
+ * панели, и без приглушения: это не служебная мелочь, а то, ради чего
+ * строку и открывают. */
+.claude-accs-usage-label {
+  /* Ширина по содержимому и выравнивание влево: колонка фиксированной
+   * ширины отодвигала первую шкалу от начала строки на разницу между
+   * «5 ч» и «7 дн». Шкалы всё равно остаются сравнимыми — их длина
+   * задана жёстко и от подписи не зависит. */
+  flex: 0 0 auto;
+  font-size: 12px;
+  line-height: 1;
+  /* Всегда белая: цветом говорит шкала, подпись лишь называет окно. */
+  color: #fff;
+  white-space: nowrap;
+}
+
+/* Шкала тянется на всё свободное место строки. Неизрасходованная часть
+ * заметно светлее заполненной: это тоже информация — сколько лимита
+ * ещё осталось, — а на прежней почти невидимой подложке её приходилось
+ * додумывать. Цвет задан явной полупрозрачностью, а не переменной темы:
+ * у переменных расширения нет оттенка нужной светлоты, а color-mix
+ * этот webview не понимает (как и `:has()`). */
+.claude-accs-usage-track {
+  /* Ширина одна на всех участников: по ней же выравниваются оба слоя
+   * надписи внутри шкалы. Держать её в переменной обязательно —
+   * разъехавшиеся слои дали бы двоящийся текст на границе заливки. */
+  --claude-track-width: 118px;
+  position: relative;
+  flex: 0 0 var(--claude-track-width);
+  /* Высота под надпись: в прежние 7px текст не помещался. */
+  height: 16px;
+  overflow: hidden;
+  border-radius: 8px;
+  /* Цвет подложки подобран на стенде вместе с цветом текста: пара
+   * #000dff на #d5fff5 даёт контраст 7.8:1. Больше не полупрозрачность:
+   * выбранный цвет работает в обеих темах, отдельного правила для
+   * светлой не нужно. */
+  background: #d5fff5;
+}
+
+.claude-accs-usage-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  border-radius: 8px;
+  background: var(--claude-usage-color,
+                   var(--app-progressbar-background, var(--vscode-charts-blue, #4daafc)));
+}
+
+/* --- время до сброса внутри шкалы ---------------------------------------
+ *
+ * Надпись лежит сразу на двух фонах: слева заливка окна, справа светлая
+ * подложка. Один цвет читался бы плохо на одном из них, поэтому текст
+ * рисуется двумя слоями: нижний в цвете для подложки, верхний в цвете
+ * для заливки и обрезан ровно по её ширине (`.claude-accs-usage-clip`
+ * с той же шириной в процентах, что и заливка). Цвет меняется точно на
+ * границе заливки.
+ *
+ * Оба слоя обязаны иметь одинаковую ширину и выравнивание — потому
+ * ширина берётся из переменной шкалы. Разъехавшись хотя бы на пиксель,
+ * они дали бы двоящиеся буквы на стыке. */
+.claude-accs-usage-when {
+  /* Надпись сжата по содержимому (`width: fit-content` + `margin: auto`
+   * между всеми четырьмя нулями центрируют её по обеим осям).
+   *
+   * Читаемость даёт гало, а не плашка: четыре тени одного цвета
+   * образуют обводку со всех сторон (одна светила бы только в одну),
+   * и заливка под текстом остаётся видна целиком. Плашка закрывала бы
+   * её куском светлого фона.
+   *
+   * Радиус 2px: на 10px кегле больший начинает замыливать тонкие
+   * штрихи. Числа контраста у такой пары нет — WCAG считает два
+   * сплошных цвета, а свечение вокруг букв в эту модель не
+   * укладывается, поэтому вариант выбран глазами на стенде
+   * usage-readability-variants.html. */
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: fit-content;
+  height: fit-content;
+  text-shadow:
+    0 0 2px #f6f5f4,
+    0 0 2px #f6f5f4,
+    0 0 2px #f6f5f4,
+    0 0 2px #f6f5f4;
+  font-size: 10px;
+  line-height: 1;
+  /* 700: системный шрифт статический, веса 650 у него нет — браузер
+   * и так рисовал ближайший, пишем его явно. */
+  font-weight: 700;
+  white-space: nowrap;
+  /* Цвет подобран на стенде usage-text-picker.html парой с подложкой
+   * #d5fff5 (контраст 7.8:1). */
+  color: #000dff;
+  pointer-events: none;
+}
+
+/* Верхний слой двухслойной схемы 55.2: бандл, загруженный до этой
+ * правки, ещё создаёт его — глушим стилем, чтобы починка была видна
+ * без Reload Window. Новая разметка слой не содержит вовсе. */
+.claude-accs-usage-clip {
+  display: none;
+}
+
+/* Цвет говорит не о том, какое это окно, а сколько лимита уже съедено:
+ * до четверти — зелёный, до половины — жёлтый, до трёх четвертей —
+ * оранжевый, дальше красный. Оттенки те же, что у секторов индикатора
+ * Mood (.claude-mood-arc-*): одна и та же тревога в двух местах
+ * интерфейса не должна выглядеть по-разному.
+ *
+ * Цвет записан один раз, в переменную на строке окна, и достаётся и
+ * шкале, и проценту — два места с одним оттенком рано или поздно
+ * разошлись бы. Подпись окна в этом не участвует: она называет окно,
+ * а не оценивает его, и остаётся белой.
+ *
+ * Границы четвертей считает JS (`data-level` = 0..3): порог живёт в
+ * одном месте, а не четырьмя числами в селекторах. Отдельного правила
+ * «лимит близко» больше нет — последняя четверть и есть красная. */
+.claude-accs-usage-row[data-level="0"] { --claude-usage-color: var(--claude-mood-4); }
+.claude-accs-usage-row[data-level="1"] { --claude-usage-color: var(--claude-mood-3); }
+.claude-accs-usage-row[data-level="2"] { --claude-usage-color: var(--claude-mood-2); }
+.claude-accs-usage-row[data-level="3"] { --claude-usage-color: var(--claude-mood-1); }
+
+/* Табличные цифры: без них «9%» и «21%» дают разную ширину, и правый
+ * край колонки дёргается при каждом обновлении. */
+/* Ширина колонки процентов фиксирована: иначе «9%» и «100%» дали бы
+ * шкалам разную длину, и сравнивать их стало бы нельзя. */
+.claude-accs-usage-pct {
+  flex: 0 0 32px;
+  font-size: 12px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  /* Тоже к шкале: при выравнивании вправо «62%» отходило от неё
+   * дальше, чем «100%». Ширина колонки фиксирована по «100%», чтобы
+   * обе группы оставались одинаковыми. */
+  text-align: left;
+  /* Процент — тем же цветом, что и шкала: это одно число, показанное
+   * дважды, и разные цвета читались бы как разные величины. */
+  color: var(--claude-usage-color, #fff);
+}
+
+/* Белый — цвет тёмной темы; в светлой он был бы невидим, там берём
+ * штатный цвет текста. Проценты сюда не попадают: у них цвет шкалы,
+ * и он читается в обеих темах. */
+.vscode-light .claude-accs-usage-label {
+  color: var(--app-primary-foreground, #1f1f1f);
+}
+
+/* --- редактор env ------------------------------------------------------
+ *
+ * Строка аккаунта — кнопка, поэтому шестерёнку кладём рядом с ней, а не
+ * внутрь: вложенная кнопка невалидна и ломает клики. Обёртка держит обе
+ * в строку, а форму — под ними. */
+.claude-accs-line {
+  display: flex;
+  align-items: flex-start;
+}
+
+.claude-accs-line .claude-accs-row {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.claude-accs-gear {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: inherit;
+  opacity: 0.45;
+  cursor: pointer;
+}
+
+.claude-accs-gear:hover {
+  opacity: 1;
+  background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.07));
+}
+
+.claude-accs-env {
+  margin: 2px 0 6px 18px;
+  padding: 8px;
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 6px;
+  background: var(--vscode-editor-background, rgba(0, 0, 0, 0.25));
+}
+
+.claude-accs-env-head {
+  margin-bottom: 6px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+/* Заголовок раздела формы: настройки и env стоят в одном окне, и без
+ * разделителя строка `model` выглядела бы переменной окружения. */
+.claude-accs-env-sec {
+  margin: 8px 0 4px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.45;
+}
+
+.claude-accs-env-sec:first-of-type {
+  margin-top: 2px;
+}
+
+/* Собственной прокрутки у списка нет: разделов в форме два, и два
+ * вложенных скролла внутри уже скроллящейся панели ловили бы колесо
+ * мыши по очереди. Высоту держит сама панель (max-height + overflow). */
+.claude-accs-env-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.claude-accs-env-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.claude-accs-env-key,
+.claude-accs-env-val {
+  min-width: 0;
+  padding: 3px 5px;
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.14));
+  border-radius: 4px;
+  background: var(--vscode-input-background, rgba(255, 255, 255, 0.05));
+  color: var(--vscode-input-foreground, inherit);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+}
+
+.claude-accs-env-key:focus,
+.claude-accs-env-val:focus {
+  outline: 1px solid var(--vscode-focusBorder, #0078d4);
+}
+
+/* Имя переменной длиннее значения не бывает по смыслу, но короче —
+ * сплошь и рядом («1»), поэтому ширины фиксируем в долях. */
+.claude-accs-env-key {
+  flex: 4 1 0;
+}
+
+.claude-accs-env-val {
+  flex: 5 1 0;
+}
+
+/* Метка поля в разделе подписки («оплачена», «срок, дн»). Доля ширины
+ * та же, что у колонки ключа: поле даты встаёт ровно в колонку
+ * значений env-строк ниже, и форма читается одной сеткой. */
+.claude-accs-env-label {
+  flex: 4 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+/* --- календарь даты оплаты ----------------------------------------------
+ *
+ * Свой пикер, а не нативный у input[type=datetime-local]: webview
+ * расширения не даёт всплывающим панелям Chromium открыться, и поле
+ * молча оставалось без календаря. Разворачивается прямо в форме,
+ * под полем «оплачена», — плавающим быть не обязано, панель и так
+ * подгоняет высоту (positionPanel). */
+.claude-accs-cal {
+  margin: 2px 0 4px;
+  padding: 6px;
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 5px;
+  background: var(--vscode-editor-background, rgba(0, 0, 0, 0.25));
+}
+
+.claude-accs-cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.claude-accs-cal-title {
+  font-size: 12px;
+}
+
+/* Стрелки месяца — маленькие квадраты, курсор-рука как у кнопок
+ * формы; фоновая плашка только под курсором. */
+.claude-accs-cal-nav {
+  flex: 0 0 22px;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  text-align: center;
+  cursor: pointer;
+}
+.claude-accs-cal-nav:hover {
+  background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.07));
+}
+
+/* Семь равных колонок: заголовки дней недели и числа одной сеткой.
+ * Ширина получается из формы; ячейки тянутся сами. */
+.claude-accs-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.claude-accs-cal-wd {
+  text-align: center;
+  font-size: 10px;
+  opacity: 0.45;
+  padding: 1px 0;
+}
+
+/* День — кнопка без оформления: плашка появится на hover, а выбранный
+ * и сегодняшний расписаны ниже. */
+.claude-accs-cal-day {
+  padding: 3px 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  text-align: center;
+  cursor: pointer;
+}
+.claude-accs-cal-day:hover {
+  background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.07));
+}
+
+/* Выбранный день — цвет кнопки расширения: это единственная метка
+ * выбора в форме, и теряться ей нельзя. */
+.claude-accs-cal-sel {
+  background: var(--vscode-button-background, #0e639c);
+  color: var(--vscode-button-foreground, #fff);
+}
+.claude-accs-cal-sel:hover {
+  background: var(--vscode-button-hoverBackground, #1177bb);
+}
+
+/* Сегодня — тонкая рамка: отличие справочное, выбирать сегодня никто
+ * не обязан (платят когда платят). */
+.claude-accs-cal-today {
+  outline: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.35));
+}
+
+.claude-accs-cal-time {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.claude-accs-cal-colon {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+.claude-accs-cal-foot {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+}
+
+/* Обёртка поля значения настройки. Тип поля меняется вместе с именем
+ * настройки (текст ↔ список), и без обёртки с той же долей ширины
+ * колонка прыгала бы при каждой такой замене. */
+.claude-accs-env-field {
+  display: flex;
+  flex: 5 1 0;
+  min-width: 0;
+}
+
+.claude-accs-env-field > .claude-accs-env-val {
+  flex: 1 1 auto;
+  width: 100%;
+}
+
+.claude-accs-env-sel {
+  padding: 3px 4px;
+  cursor: pointer;
+}
+
+/* Значок описания ключа. Не кнопка: он ничего не делает, весь смысл —
+ * во всплывающей подсказке, а курсор-рука обещал бы действие. */
+.claude-accs-env-hint {
+  flex: 0 0 auto;
+  width: 14px;
+  text-align: center;
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0.45;
+  cursor: help;
+}
+
+.claude-accs-env-hint:hover {
+  opacity: 1;
+}
+
+.claude-accs-env-del {
+  flex: 0 0 auto;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font-size: 11px;
+  line-height: 1;
+  opacity: 0.5;
+  cursor: pointer;
+}
+
+.claude-accs-env-del:hover {
+  opacity: 1;
+  background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.07));
+}
+
+.claude-accs-env-note {
+  margin-top: 6px;
+  font-size: 11px;
+  opacity: 0.65;
+}
+
+.claude-accs-env-note:empty {
+  display: none;
+}
+
+.claude-accs-env-err {
+  color: var(--vscode-errorForeground, #f48771);
+  opacity: 1;
+}
+
+.claude-accs-env-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.claude-accs-env-btn {
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--vscode-button-secondaryBackground, #3a3d41);
+  color: var(--vscode-button-secondaryForeground, #fff);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.claude-accs-env-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.claude-accs-env-save {
+  background: var(--vscode-button-background, #0e639c);
+  color: var(--vscode-button-foreground, #fff);
+}
+
+.claude-accs-env-cancel {
+  padding: 3px 9px;
+  border: 1px solid var(--vscode-button-secondaryForeground, #bbb);
+  background: transparent;
+}
+
+.claude-accs-env-cancel:hover:not(:disabled) {
+  background: var(--vscode-button-secondaryHoverBackground, rgba(255, 255, 255, 0.1));
+}
+
+/* Результат переключения — заметнее подписи внизу: пользователю нужно
+ * увидеть, что действие произошло и что требуется перезагрузка окна. */
+.claude-accs-note {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  background: var(--vscode-inputValidation-infoBackground, rgba(100, 148, 237, 0.15));
+  color: var(--app-primary-foreground, #ddd);
+  font-size: 11px;
+}
+
+.claude-accs-empty {
+  padding: 6px 0;
+  opacity: 0.7;
+}
+
+/* --- Модалка «перезапустить расширение?» ---
+ *
+ * Открывается сразу после успешной смены аккаунта: файл настроек уже
+ * подменён, но применится он только в новом процессе Claude Code.
+ * Свой namespace, а не классы .claude-move-*: там другой IIFE, и общие
+ * стили связали бы два независимых модуля.
+ */
+.claude-accs-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--vscode-font-family, system-ui, sans-serif);
+  font-size: 13px;
+  color: var(--app-primary-foreground, #ddd);
+}
+
+.claude-accs-modal {
+  background: var(--app-primary-background, #1f1f1f);
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.1));
+  border-radius: 8px;
+  padding: 16px 18px;
+  width: min(460px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.claude-accs-modal-head {
+  font-size: 15px;
+  font-weight: 600;
+  color: #51e00e;
+}
+
+.claude-accs-modal-card {
+  background: var(--app-hover-background, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.1));
+  border-radius: 4px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.claude-accs-modal-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--app-tertiary-foreground, #888);
+}
+.claude-accs-modal-value {
+  font-size: 14px;
+  font-weight: 500;
+  word-break: break-word;
+}
+.claude-accs-modal-sub {
+  font-size: 11px;
+  color: var(--app-secondary-foreground, #888);
+  font-family: var(--vscode-editor-font-family, monospace);
+  word-break: break-all;
+}
+
+.claude-accs-modal-text {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--app-secondary-foreground, #aaa);
+}
+
+/* Предупреждение о потере текущего диалога — единственное место, где
+ * пользователь платит за перезапуск, поэтому оно выделено фоном. */
+.claude-accs-modal-warn {
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: var(--vscode-inputValidation-warningBackground, rgba(210, 153, 34, 0.15));
+  border: 1px solid var(--vscode-inputValidation-warningBorder, rgba(210, 153, 34, 0.4));
+}
+
+/* Пустой до первого действия — не резервируем под него место, иначе
+ * в модалке висела бы дыра. */
+.claude-accs-modal-status {
+  font-size: 12px;
+  line-height: 1.5;
+}
+.claude-accs-modal-status:empty {
+  display: none;
+}
+.claude-accs-modal-status-wait { color: var(--app-secondary-foreground, #aaa); }
+.claude-accs-modal-status-ok   { color: #51e00e; }
+.claude-accs-modal-status-err  { color: #ff7373; }
+
+.claude-accs-modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+.claude-accs-modal-btn {
+  padding: 6px 12px;
+  border-radius: 4px;
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.15));
+  background: var(--app-button-background, rgba(255, 255, 255, 0.06));
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
+}
+.claude-accs-modal-btn:hover:not(:disabled) {
+  background: var(--app-button-hover-background, rgba(255, 255, 255, 0.1));
+}
+.claude-accs-modal-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.claude-accs-modal-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--app-secondary-foreground, #aaa);
+}
+.claude-accs-modal-primary {
+  background: #2d8a3e;
+  border-color: #2d8a3e;
+  color: #fff;
+}
+.claude-accs-modal-primary:hover:not(:disabled) {
+  background: #36a44a;
+  border-color: #36a44a;
+}
+
+/* ============================================================
+ * MOOD GAUGE — модуль MOOD GAUGE в claude-custom.js.
+ * Индикатор-спидометр «Mood» в футере, слева от кнопки Accs:
+ * полукруглая шкала из четырёх секторов и стрелка поверх неё.
+ * Включается параметром moodGauge в claude-custom-config.toml.
+ *
+ * Всё оформление шкалы — здесь, а не в атрибутах SVG: CSS
+ * подхватывается горячо (cache-bust <link> раз в pollIntervalMs),
+ * поэтому цвета и толщину можно подбирать без Reload Window.
+ * ============================================================ */
+
+/* Палитра тревоги: от «всё плохо» (1) до «всё хорошо» (4). Одни и те
+ * же четыре оттенка носят секторы шкалы, зоны графика истории,
+ * полоски расхода лимитов в панели Accs и обводка поля ввода в режиме
+ * inputRingColor = "mood". Четыре копии одних значений однажды
+ * разошлись бы, и «одна и та же тревога» стала бы выглядеть в разных
+ * местах по-разному — ровно то, чего требует комментарий у полосок.
+ *
+ * Значения читаемы и на тёмной, и на светлой теме. */
+:root {
+  --claude-mood-1: #f85149;
+  --claude-mood-2: #f0883e;
+  --claude-mood-3: #e3b341;
+  --claude-mood-4: #3fb950;
+}
+
+/* Не кнопка, а индикатор: класс штатной footerButton_ не копируется,
+ * hover-подсветки и указателя мыши нет — кликать тут нечего.
+ * Отступы повторяют .claude-*-btn-bare, чтобы в ряду футера
+ * индикатор стоял на той же сетке, что и соседние кнопки. */
+.claude-mood {
+  /* Индикатор — кнопка, как Accs и Usage: класс штатной
+   * `footerButton_` заимствуется, поэтому размеры, шрифт и подсветка
+   * при наведении достаются даром. Здесь остаётся только раскладка
+   * «шкала + подпись» и приглушение в покое, как у соседей.
+   *
+   * Прежнее правило гласило «это не кнопка, cursor: default»: тогда
+   * клик ничего не делал, и обещать действие было бы неправдой.
+   * С появлением окна истории действие есть — вид ему соответствует. */
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0.75;
+  user-select: none;
+}
+
+.claude-mood:hover {
+  opacity: 1;
+}
+
+/* Запасной вид, когда донора стиля в футере не нашлось (см. такой же
+ * у .claude-accs-btn-bare): UA-оформление кнопки снимаем явно, иначе
+ * в футере проступит серая плашка с рамкой. */
+.claude-mood-bare {
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.claude-mood-bare:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.08));
+}
+
+/* Подпись жирнее соседних — как у Accs и Usage: в ряду мелких
+ * лейблов футера иначе теряется. */
+.claude-mood-label {
+  font-weight: 600;
+}
+
+.claude-mood-svg {
+  display: block;
+  width: 27px;
+  height: 16px;
+  flex-shrink: 0;
+  overflow: visible;
+}
+
+/* Дуга рисуется штрихом по окружности, заливки нет. `butt` —
+ * чтобы соседние сектора стыковались ровно по границе: скруглённый
+ * торец наползал бы на соседний цвет. */
+.claude-mood-arc {
+  fill: none;
+  stroke-width: 4;
+  stroke-linecap: butt;
+}
+
+/* Слева направо: тревожно → спокойно. Нумерация классов идёт по
+ * ходу шкалы (1 — крайний левый сектор), поэтому порядок цветов
+ * меняется здесь и только здесь — JS о палитре ничего не знает. */
+.claude-mood-arc-1 { stroke: var(--claude-mood-1); }
+.claude-mood-arc-2 { stroke: var(--claude-mood-2); }
+.claude-mood-arc-3 { stroke: var(--claude-mood-3); }
+.claude-mood-arc-4 { stroke: var(--claude-mood-4); }
+
+/* Стрелка нарисована в положении «0» (остриём влево), значение —
+ * это поворот вокруг центра шкалы. transform-box: view-box нужен,
+ * чтобы transform-origin считался в единицах viewBox, а не по
+ * bounding box самой стрелки. */
+.claude-mood-needle {
+  transform-box: view-box;
+  transform-origin: 17px 17px;
+  transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Стрелка и её ось — цветом текста футера: шкала и так пёстрая,
+ * пятый цвет поверх неё сделал бы индикатор нечитаемым. */
+.claude-mood-pointer,
+.claude-mood-hub {
+  fill: currentColor;
+}
+
+/* Данных ещё нет (сессия не определилась, сервер молчит): шкала
+ * обесцвечивается. Цветные сектора с зелёной стрелкой утверждали бы
+ * «всё хорошо» — а мы в этот момент просто не знаем. */
+.claude-mood-nodata {
+  opacity: 0.5;
+}
+.claude-mood-nodata .claude-mood-arc {
+  stroke: currentColor;
+  opacity: 0.3;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .claude-mood-needle {
+    transition: none;
+  }
+}
+
+/* --- окно истории Mood ---------------------------------------------
+ *
+ * Повторяет панель Accs: раскрывается вверх от футера, закрывается
+ * кликом мимо и Escape. Отдельного вида не придумываем — два разных
+ * оформления у соседних кнопок читались бы как два разных механизма.
+ */
+.claude-mood-panel {
+  position: fixed;
+  z-index: 100000;
+  display: flex;
+  flex-direction: column;
+  width: min(470px, calc(100vw - 12px));
+  max-height: min(70vh, 420px);
+  overflow-y: auto;
+  padding: 10px 12px;
+  background: var(--app-primary-background, var(--vscode-editorHoverWidget-background, #1f1f1f));
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  font-family: var(--vscode-font-family, system-ui, sans-serif);
+  font-size: 12px;
+  color: var(--app-primary-foreground, #ddd);
+}
+
+.claude-mood-head {
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.claude-mood-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.claude-mood-empty {
+  padding: 10px 2px;
+  opacity: 0.7;
+}
+
+.claude-mood-chart {
+  display: block;
+  width: 100%;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+/* Зоны фона — те же четыре цвета, что у секторов шкалы, но сильно
+ * приглушённые: они разметка, а не сообщение. Яркие полосы спорили бы
+ * с самой кривой за внимание. */
+.claude-mood-zone-1 { fill: var(--claude-mood-1); fill-opacity: 0.16; }
+.claude-mood-zone-2 { fill: var(--claude-mood-2); fill-opacity: 0.16; }
+.claude-mood-zone-3 { fill: var(--claude-mood-3); fill-opacity: 0.16; }
+.claude-mood-zone-4 { fill: var(--claude-mood-4); fill-opacity: 0.16; }
+
+.claude-mood-grid {
+  stroke: rgba(255, 255, 255, 0.14);
+  stroke-width: 1;
+}
+
+.claude-mood-axis {
+  fill: var(--app-secondary-foreground, #aaa);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Кривая белая, а не цветная: цвет уже занят зонами фона, и вторая
+ * цветовая шкала поверх первой читалась бы как отдельный смысл. */
+.claude-mood-line {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.claude-mood-dot {
+  fill: #fff;
+  stroke: rgba(0, 0, 0, 0.5);
+  stroke-width: 1;
+}
+
+.claude-mood-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+}
+
+.claude-mood-summary-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  opacity: 0.85;
+}
+
+.claude-mood-summary-val {
+  font-variant-numeric: tabular-nums;
+  opacity: 1;
+}
+
+/* --- окно настроек (SETTINGS PANEL) ---------------------------------
+ *
+ * В отличие от панелей футера, это окно не привязано к кнопке: его
+ * открывают из контекстного меню, то есть из произвольной точки
+ * страницы, и «раскрываться вверх от кнопки» тут не от чего. Поэтому
+ * подложка на весь экран и окно по центру — заодно подложка даёт
+ * закрытие кликом мимо без слежения за координатами.
+ */
+.claude-settings-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.claude-settings-window {
+  display: flex;
+  flex-direction: column;
+  width: min(720px, calc(100vw - 32px));
+  max-height: min(78vh, 640px);
+  padding: 14px 16px 12px;
+  background: var(--app-primary-background, var(--vscode-editorHoverWidget-background, #1f1f1f));
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  font-family: var(--vscode-font-family, system-ui, sans-serif);
+  font-size: 12px;
+  color: var(--app-primary-foreground, #ddd);
+}
+
+/* Шапка в две колонки: заголовок слева, крестик справа. У окна нет
+ * рамки VSCode с системным крестиком — это div на подложке, а не
+ * диалог оболочки, поэтому кнопку закрытия рисуем сами. */
+.claude-settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Крестик приглушён в покое: он служебный и не должен спорить с
+ * заголовком за внимание. Площадь нажатия шире самого символа —
+ * попадать в 10 пикселей мышью неудобно. */
+.claude-settings-x {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 5px;
+  color: inherit;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.6;
+  cursor: pointer;
+}
+
+.claude-settings-x:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.08));
+  opacity: 1;
+}
+
+/* Имя файла под заголовком — чтобы было видно, что именно правится:
+ * те же параметры руками меняют прямо в нём. */
+.claude-settings-sub {
+  margin-bottom: 10px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+.claude-settings-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;  /* иначе flex не даст списку прокручиваться */
+  gap: 8px;
+}
+
+.claude-settings-search {
+  padding: 5px 8px;
+  background: var(--vscode-input-background, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 5px;
+  color: inherit;
+  font: inherit;
+}
+
+.claude-settings-list {
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* Раздел — <details>: разворачивается без единой строки JS, доступен
+ * с клавиатуры и попадает под штатный Ctrl+F браузера. Все свёрнуты
+ * при открытии окна: тридцать пять параметров подряд — стена, в
+ * которой ничего не найти, а тринадцать заголовков обозримы целиком. */
+.claude-settings-group {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.claude-settings-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;  /* убираем стандартный треугольник, рисуем свой */
+}
+
+.claude-settings-group-head::-webkit-details-marker { display: none; }
+
+/* Свой треугольник — стандартный маркер <details> в этом webview
+ * рисуется мелким и не наследует цвет темы. */
+.claude-settings-group-head::before {
+  content: '▸';
+  flex: 0 0 auto;
+  opacity: 0.6;
+  transition: transform 0.12s ease;
+}
+
+.claude-settings-group[open] > .claude-settings-group-head::before {
+  transform: rotate(90deg);
+}
+
+.claude-settings-group-head:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.06));
+}
+
+/* Название занимает всё свободное место, счётчик прижат вправо. */
+.claude-settings-group-head > span:first-of-type { flex: 1; }
+
+/* Счётчик параметров в разделе: при поиске превращается в «нашли /
+ * всего», чтобы было видно, где искать дальше. */
+.claude-settings-group-count {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 10px;
+  font-weight: 400;
+  opacity: 0.75;
+}
+
+/* Строки внутри раздела с отступом — видно, что они ему принадлежат. */
+.claude-settings-group .claude-settings-row {
+  padding-left: 14px;
+}
+
+.claude-settings-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 6px 2px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.claude-settings-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.claude-settings-key {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+}
+
+/* Первая строка комментария из TOML. Обрезаем одной строкой: полный
+ * текст уходит в подсказку при наведении — у некоторых параметров это
+ * несколько абзацев, и в списке из тридцати строк они нечитаемы. */
+.claude-settings-hint {
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--app-secondary-foreground, #9aa0a6);
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.claude-settings-control {
+  flex: 0 0 auto;
+  padding-top: 2px;
+}
+
+.claude-settings-input {
+  width: 130px;
+  padding: 3px 6px;
+  background: var(--vscode-input-background, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 4px;
+  color: inherit;
+  font: inherit;
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+/* Список вариантов — та же геометрия, что у поля ввода: в колонке
+ * управления они стоят вперемешку, и разная ширина читалась бы как
+ * разный вид настройки. Выпадающую часть рисует оболочка VSCode
+ * своими цветами — приводить её к нашим нечем и незачем. */
+.claude-settings-select {
+  width: 130px;
+  padding: 3px 6px;
+  background: var(--vscode-input-background, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  border-radius: 4px;
+  color: inherit;
+  font: inherit;
+  font-family: var(--vscode-editor-font-family, monospace);
+  cursor: pointer;
+}
+
+.claude-settings-check {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--vscode-charts-blue, #3794ff);
+  cursor: pointer;
+}
+
+.claude-settings-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* Статус занимает всё свободное место слева от кнопок: сообщение об
+ * ошибке бывает длинным, а кнопки должны оставаться на месте. */
+.claude-settings-status {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+.claude-settings-status-ok { color: var(--vscode-charts-green, #3fb950); opacity: 1; }
+.claude-settings-status-err { color: var(--vscode-charts-red, #f85149); opacity: 1; }
+.claude-settings-status-wait { opacity: 0.6; }
+
+.claude-settings-btn {
+  padding: 4px 12px;
+  background: none;
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.18));
+  border-radius: 5px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.claude-settings-btn:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.08));
+}
+
+.claude-settings-btn-primary {
+  background: var(--vscode-button-background, #0e639c);
+  border-color: transparent;
+  color: var(--vscode-button-foreground, #fff);
+}
+
+.claude-settings-btn-primary:hover {
+  background: var(--vscode-button-hoverBackground, #1177bb);
+}
+
+.claude-settings-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ============================================================
+ * IMAGE ANNOTATION EDITOR — кнопка в preview и Canvas-редактор
+ * ============================================================ */
+
+.claude-image-editable {
+  position: relative;
+  width: fit-content;
+}
+
+/* Штатное закрытие preview стоит top:-12/right:-12. Редактор ставим
+ * симметрично слева — вне изображения и без изменения его размеров. */
+.claude-image-edit-btn,
+.claude-image-export-btn {
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  left: -34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.52);
+  border-radius: 50%;
+  background: rgba(24, 24, 27, 0.82);
+  color: #fff;
+  font: 17px/1 sans-serif;
+  cursor: pointer;
+  opacity: 0.9;
+  transition: opacity 120ms ease, transform 120ms ease, background 120ms ease;
+}
+
+.claude-image-edit-btn:hover,
+.claude-image-edit-btn:focus-visible,
+.claude-image-export-btn:hover,
+.claude-image-export-btn:focus-visible {
+  background: rgba(9, 9, 11, 0.96);
+  opacity: 1;
+  outline: none;
+  transform: scale(1.06);
+}
+
+.claude-image-export-btn:disabled { opacity: 0.5; cursor: wait; }
+.claude-image-export-btn.claude-image-save-btn[data-saved="true"] {
+  background: #238636;
+  border-color: #3fb950;
+  color: #fff;
+  opacity: 1;
+}
+.claude-image-export-status {
+  position: fixed;
+  z-index: 5;
+  bottom: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100vw - 32px);
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #18181b;
+  color: #fff;
+  font: 12px/1.4 sans-serif;
+  pointer-events: none;
+}
+
+.claude-image-editable img[class*="previewImage_"] {
+  touch-action: none;
+  will-change: transform;
+}
+
+/* Apply before the asynchronous scan, including the first gesture on open. */
+[class*="previewOverlay_"] img[class*="previewImage_"] {
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+.claude-image-editable img[class*="previewImage_"][data-preview-zoomed="true"] {
+  cursor: grab;
+}
+
+.claude-image-editable img[class*="previewImage_"][data-preview-panning="true"] {
+  cursor: grabbing;
+}
+
+.claude-image-preview-zoom,
+.claude-image-editor-zoom {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.2));
+  border-radius: 6px;
+  background: var(--app-primary-background, var(--vscode-editor-background, #18181b));
+  color: var(--app-primary-foreground, var(--vscode-editor-foreground, #e5e7eb));
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.35);
+}
+
+.claude-image-preview-zoom {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 10px);
+  bottom: auto;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.claude-image-editor-zoom {
+  flex: 0 0 auto;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: none;
+}
+
+.claude-image-zoom-btn,
+.claude-image-zoom-value {
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: 12px/1 sans-serif;
+  cursor: pointer;
+}
+
+.claude-image-zoom-btn {
+  width: 27px;
+  font-size: 18px;
+}
+
+.claude-image-zoom-value {
+  width: 48px;
+}
+
+.claude-image-zoom-btn:hover:not(:disabled),
+.claude-image-zoom-value:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.08));
+}
+
+.claude-image-zoom-btn:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.claude-image-editor-overlay {
+  position: fixed;
+  z-index: 100100;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(2px);
+}
+
+.claude-image-editor-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(1040px, calc(100vw - 36px));
+  height: min(820px, calc(100vh - 36px));
+  min-width: 300px;
+  overflow: hidden;
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.18));
+  border-radius: 10px;
+  background: var(--app-primary-background, var(--vscode-editor-background, #18181b));
+  color: var(--app-primary-foreground, var(--vscode-editor-foreground, #e5e7eb));
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.58);
+}
+
+.claude-image-editor-header,
+.claude-image-editor-footer {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-color: var(--app-border-color, rgba(255, 255, 255, 0.12));
+}
+
+.claude-image-editor-header {
+  border-bottom-width: 1px;
+  border-bottom-style: solid;
+}
+
+.claude-image-editor-header strong {
+  flex: 1;
+  font-size: 13px;
+}
+
+.claude-image-editor-close {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  font: 22px/1 sans-serif;
+  cursor: pointer;
+}
+
+.claude-image-editor-close:hover {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.08));
+}
+
+.claude-image-editor-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.12));
+  background: var(--vscode-sideBar-background, rgba(255, 255, 255, 0.025));
+}
+
+.claude-image-editor-tools,
+.claude-image-editor-colors,
+.claude-image-editor-history {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.claude-image-editor-history {
+  margin-left: auto;
+}
+
+.claude-image-editor-move-hint {
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.claude-image-tool-btn,
+.claude-image-history-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: 20px/1 sans-serif;
+  cursor: pointer;
+}
+
+.claude-image-tool-btn:hover,
+.claude-image-history-btn:hover:not(:disabled) {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.08));
+}
+
+.claude-image-tool-btn.is-active {
+  border-color: var(--vscode-focusBorder, #4387df);
+  background: var(--vscode-list-activeSelectionBackground, rgba(67, 135, 223, 0.24));
+}
+
+.claude-image-history-btn:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.claude-image-color-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  background: var(--annotation-color);
+  box-shadow: 0 0 0 1px rgba(127, 127, 127, 0.45);
+  cursor: pointer;
+}
+
+.claude-image-color-btn.is-active {
+  border-color: var(--vscode-editor-foreground, #fff);
+  box-shadow: 0 0 0 2px var(--vscode-focusBorder, #4387df);
+}
+
+.claude-image-color-picker {
+  width: 30px;
+  height: 28px;
+  padding: 1px;
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.18));
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.claude-image-width-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  opacity: 0.9;
+}
+
+.claude-image-width-input {
+  width: 86px;
+  accent-color: var(--vscode-focusBorder, #4387df);
+}
+
+.claude-image-editor-stage {
+  display: block;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  background-color: #111318;
+  background-image:
+    linear-gradient(45deg, #1b1e24 25%, transparent 25%),
+    linear-gradient(-45deg, #1b1e24 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #1b1e24 75%),
+    linear-gradient(-45deg, transparent 75%, #1b1e24 75%);
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  background-size: 16px 16px;
+}
+
+.claude-image-editor-canvas {
+  display: block;
+  max-width: none;
+  max-height: none;
+  margin-right: auto;
+  margin-left: auto;
+  background: #fff;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.claude-image-editor-canvas[data-tool="select"] {
+  cursor: move;
+}
+
+.claude-image-editor-canvas[data-dragging="true"] {
+  cursor: grabbing;
+}
+
+.claude-image-editor-canvas:focus {
+  outline: 1px solid var(--vscode-focusBorder, #4387df);
+  outline-offset: 2px;
+}
+
+.claude-image-editor-footer {
+  position: relative;
+  border-top-width: 1px;
+  border-top-style: solid;
+}
+
+.claude-image-editor-status {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11px;
+  opacity: 0.78;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.claude-image-editor-action {
+  min-width: 82px;
+  padding: 6px 13px;
+  border: 1px solid var(--app-border-color, rgba(255, 255, 255, 0.2));
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.claude-image-editor-action:hover:not(:disabled) {
+  background: var(--vscode-toolbar-hoverBackground, rgba(255, 255, 255, 0.08));
+}
+
+.claude-image-editor-action.is-primary {
+  border-color: transparent;
+  background: var(--vscode-button-background, #0e639c);
+  color: var(--vscode-button-foreground, #fff);
+}
+
+.claude-image-editor-action.is-primary:hover:not(:disabled) {
+  background: var(--vscode-button-hoverBackground, #1177bb);
+}
+
+.claude-image-editor-action:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+@media (max-width: 680px) {
+  .claude-image-editor-overlay { padding: 6px; }
+  .claude-image-editor-panel {
+    width: calc(100vw - 12px);
+    height: calc(100vh - 12px);
+  }
+  .claude-image-editor-toolbar { gap: 8px; }
+  .claude-image-editor-history {
+    width: 100%;
+    margin-left: 0;
+  }
+  .claude-image-width-label { margin-left: auto; }
+}
+
+/* ============================================================
+ * INPUT RING — обводка поля ввода цветом индикатора Mood.
+ * Модуль INPUT RING в claude-custom.js, параметр inputRingColor
+ * в claude-custom-config.toml.
+ *
+ * Штатно рамка при фокусе окрашена по режиму разрешений: расширение
+ * держит цвет в переменной --focus-ring-color и меняет её правилами
+ * вида `.inputContainer_*[data-permission-mode=plan]:focus-within`.
+ * Отсюда и способ: подменяется та же переменная, а border-color и
+ * box-shadow расширение выведет из неё само — второй набор правил
+ * про саму рамку разошёлся бы с оригиналом на первом же обновлении.
+ *
+ * Уровень (0..3) ставит JS атрибутом, палитра остаётся здесь: цвет
+ * рамки правится горячо вместе с секторами шкалы, из которых он и
+ * взят. JS о значениях цвета по-прежнему не знает ничего.
+ *
+ * Класс продублирован в селекторе намеренно. У правил расширения
+ * специфичность (0,3,0) — класс, атрибут и :focus-within; дубль даёт
+ * (0,4,0) и выигрывает у них не по порядку подключения файлов, а по
+ * весу. Полагаться на порядок нельзя: наш <link> пересоздаётся
+ * cache-bust'ом раз в pollIntervalMs и после этого встаёт последним,
+ * но так будет не при любом способе загрузки страницы.
+ * ============================================================ */
+
+.claude-ring-mood.claude-ring-mood[data-claude-mood-level="0"]:focus-within {
+  --focus-ring-color: var(--claude-mood-1);
+}
+.claude-ring-mood.claude-ring-mood[data-claude-mood-level="1"]:focus-within {
+  --focus-ring-color: var(--claude-mood-2);
+}
+.claude-ring-mood.claude-ring-mood[data-claude-mood-level="2"]:focus-within {
+  --focus-ring-color: var(--claude-mood-3);
+}
+.claude-ring-mood.claude-ring-mood[data-claude-mood-level="3"]:focus-within {
+  --focus-ring-color: var(--claude-mood-4);
+}
+
+/* ============================================================
+ * LIMIT ALERT STOP — плавающая плашка «стоп» над панелью ввода
+ *
+ * Появляется только пока играет звук уведомления о сбросе лимита
+ * (модуль LIMIT ALERT STOP BUTTON в claude-custom.js); вид — в семье
+ * панелей проекта (Accs): те же переменные фона и рамки. Позицию
+ * bottom/left считает JS по панели ввода; left — это ЦЕНТР плашки,
+ * а не её край, поэтому постоянный translateX(-50%) обязателен.
+ * Повторён и в :active — единый transform, иначе нажатие скинуло бы
+ * плашку на полширины вправо.
+ * ============================================================ */
+
+.claude-limit-stop-float {
+  position: fixed;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 93px;
+  height: 93px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.4);
+  border-radius: 50%;
+  /* Сигнальный жёлтый фон, квадрат — #178aff (подобран на стенде
+   * tmp/stop-button-color-picker.html). */
+  background: #ffcc00;
+  color: #178aff;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  transform: translateX(-50%);
+}
+
+/* Размер иконки живёт здесь, а не в атрибутах SVG у stopIcon():
+ * CSS перебивает презентационные атрибуты, значит размер правится
+ * горячо — и окнам со старым JS не нужен Reload Window.
+ *
+ * Квадрат занимает половину viewBox (8 из 16), поэтому при svg 94px
+ * видимый квадрат — 47px. */
+.claude-limit-stop-float svg {
+  width: 94px;
+  height: 94px;
+}
+
+.claude-limit-stop-float:hover {
+  background: #ffd633;
+}
+
+.claude-limit-stop-float:active {
+  transform: translateX(-50%) scale(0.92);
+}
+
+/* Пустая ячейка начала месяца: держит колонку, но не кнопка —
+ * курсор-рука над пустым местом обещала бы выбор, которого нет. */
+.claude-accs-cal-blank {
+  cursor: default;
+}
+.claude-accs-cal-blank:hover {
+  background: none;
+}
